@@ -49,7 +49,7 @@ class MVRenderer(nn.Module):
         an MVTN object that can render multiple views according to predefined setup
     """
 
-    def __init__(self, nb_views, image_size=224, pc_rendering=True, object_color="white", background_color="white", faces_per_pixel=1, points_radius=0.006,  points_per_pixel=1, light_direction="random", cull_backfaces=False):
+    def __init__(self, nb_views, image_size=224, pc_rendering=True, object_color="white", background_color="white", faces_per_pixel=500, points_radius=0.006,  points_per_pixel=1, light_direction="random", cull_backfaces=False):
         super().__init__()
         self.nb_views = nb_views
         self.image_size = image_size
@@ -62,7 +62,7 @@ class MVRenderer(nn.Module):
         self.light_direction_type = light_direction
         self.cull_backfaces = cull_backfaces
 
-    def render_meshes(self, meshes, color, azim, elev, dist, lights, background_color=(1.0, 1.0, 1.0), ):
+    def render_meshes(self, meshes, color, azim, elev, dist, lights, background_color=(1.0, 1.0, 1.0), bin_size=None ):
         c_batch_size = len(meshes)
         verts = [msh.verts_list()[0].cuda() for msh in meshes]
         faces = [msh.faces_list()[0].cuda() for msh in meshes]
@@ -90,15 +90,12 @@ class MVRenderer(nn.Module):
             image_size=self.image_size,
             blur_radius=0.0,
             faces_per_pixel=self.faces_per_pixel,
-
-
-
-
             cull_backfaces=self.cull_backfaces,
+            bin_size=15,
+            max_faces_per_bin=220000  # Increase this value
         )
         renderer = MeshRenderer(
-            rasterizer=MeshRasterizer(
-                cameras=camera, raster_settings=raster_settings),
+            rasterizer=MeshRasterizer(cameras=camera, raster_settings=raster_settings),
             shader=HardPhongShader(blend_params=BlendParams(background_color=background_color
                                                             ), device=lights.device, cameras=camera, lights=lights)
         )
@@ -106,14 +103,13 @@ class MVRenderer(nn.Module):
 
         rendered_images = renderer(new_meshes, cameras=cameras, lights=lights)
 
-        rendered_images = unbatch_tensor(
-            rendered_images, batch_size=self.nb_views, dim=1, unsqueeze=True).transpose(0, 1)
+        rendered_images = unbatch_tensor(rendered_images, batch_size=self.nb_views, dim=1, unsqueeze=True).transpose(0, 1)
 
         rendered_images = rendered_images[...,
                                           0:3].transpose(2, 4).transpose(3, 4)
         return rendered_images, cameras
 
-    def render_points(self, points, color, azim, elev, dist, background_color=(0.0, 0.0, 0.0), ):
+    def render_points(self, points, color, azim, elev, dist, background_color=(0.0, 0.0, 0.0), bin_size=None):
         c_batch_size = azim.shape[0]
 
         point_cloud = Pointclouds(points=points.to(torch.float), features=color *
@@ -129,12 +125,13 @@ class MVRenderer(nn.Module):
         raster_settings = PointsRasterizationSettings(
             image_size=self.image_size,
             radius=self.points_radius,
-            points_per_pixel=self.points_per_pixel
+            points_per_pixel=self.points_per_pixel,
+            bin_size=15,
+            max_faces_per_bin=220000 # Increase this value           
         )
 
         renderer = PointsRenderer(
-            rasterizer=PointsRasterizer(
-                cameras=cameras, raster_settings=raster_settings),
+            rasterizer=PointsRasterizer(cameras=cameras, raster_settings=raster_settings, bin_size=bin_size),
             compositor=NormWeightedCompositor(
                 background_color=background_color)
         )
