@@ -12,7 +12,9 @@ import scipy.spatial
 
 from tqdm import tqdm
 import pickle as pkl
+from datetime import datetime
 
+import os
 
 import torchvision.transforms as transforms
 import torchvision
@@ -62,7 +64,7 @@ parser.add_argument('--object_color', '-clr',  default="white", choices=["white"
                     help='the selection type of views ')
 parser.add_argument('--epochs', default=100, type=int,
                     help='number of total epochs to run (default: 100)')
-parser.add_argument('--batch_size', '-b', default=4, type=int,
+parser.add_argument('--batch_size', '-b', default=3, type=int,
                     help='mini-batch size (default: 20)')
 parser.add_argument('-r', '--resume', dest='resume',
                     action='store_true', help='continue training from the `setup[weights_file] checkpoint ')
@@ -75,23 +77,26 @@ args = parser.parse_args()
 args = vars(args)
 config = read_yaml(args["config_file"])
 setup = {**args, **config}
+setup['current_time'] = datetime.now().strftime("%d-%m_%Hh%Mm%S")
+setup["exp_set"] = setup['current_time'] 
 if setup["mvnetwork"] in ["rotnet", "mvcnn"]:
     initialize_setup(setup)
 else:
     initialize_setup_gcn(setup)
 
 print('Loading data')
+#torch.cuda.set_device(int(setup["gpu"]))
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-
-
-torch.cuda.set_device(int(setup["gpu"]))
-
-    
+############ Dataset 
+sample_train = 80
+sample_test = 20
 if "modelnet" in setup["data_dir"].lower():
-    dset_train = ModelNet40(setup["data_dir"], "train", nb_points=setup["nb_points"], simplified_mesh=setup["simplified_mesh"], cleaned_mesh=setup["cleaned_mesh"], dset_norm=setup["dset_norm"], return_points_saved=setup["return_points_saved"],
-                            is_rotated=setup["rotated_train"])
-    dset_val = ModelNet40(setup["data_dir"], "test", nb_points=setup["nb_points"], simplified_mesh=setup["simplified_mesh"], cleaned_mesh=setup["cleaned_mesh"], dset_norm=setup["dset_norm"], return_points_saved=setup["return_points_saved"],
-                          is_rotated=setup["rotated_test"])
+    # Tous les modèles d'entraînement
+    dset_train = ModelNet40(setup["data_dir"], "train", nb_points=setup["nb_points"], simplified_mesh=setup["simplified_mesh"], cleaned_mesh=setup["cleaned_mesh"], dset_norm=setup["dset_norm"], return_points_saved=setup["return_points_saved"],                           is_rotated=setup["rotated_train"], sample_points=sample_train)
+    # Tous les modèles test
+    dset_val = ModelNet40(setup["data_dir"], "test", nb_points=setup["nb_points"], simplified_mesh=setup["simplified_mesh"], cleaned_mesh=setup["cleaned_mesh"], dset_norm=setup["dset_norm"], return_points_saved=setup["return_points_saved"], is_rotated=setup["rotated_test"], sample_points=sample_test)
+    
     classes = dset_train.classes
 
 elif "shapenetcore" in setup["data_dir"].lower():
@@ -108,15 +113,22 @@ elif "scanobjectnn" in setup["data_dir"].lower():
                             variant=setup["dset_variant"], dset_norm=setup["dset_norm"])
     classes = dset_train.classes
 
+# Par batch
 train_loader = DataLoader(dset_train, batch_size=setup["batch_size"],
                           shuffle=True, num_workers=6, collate_fn=collate_fn, drop_last=True)
-
+# Par batch
 val_loader = DataLoader(dset_val, batch_size=int(setup["batch_size"]),
                         shuffle=False, num_workers=6, collate_fn=collate_fn)
+
+print(len(dset_train), "dset_train")
+print(len(dset_val), "dset_val")
+print(len(train_loader), "train_loader")
+print(len(val_loader), "val_loader")
 
 print("classes nb:", len(classes), "number of train models: ", len(
     dset_train), "number of test models: ", len(dset_val), classes)
 
+############ Network
 if setup["mvnetwork"] == "mvcnn":
     depth2featdim = {18: 512, 34: 512, 50: 2048, 101: 2048, 152: 2048}
     assert setup["depth"] in list(
@@ -139,35 +151,29 @@ if setup["mvnetwork"] == "viewgcn":
 mvnetwork.cuda()
 cudnn.benchmark = True
 
-print('Running on ' + str(torch.cuda.current_device()))
-
-
-lr = setup["learning_rate"]
-n_epochs = setup["epochs"]
-
-
 mvtn = MVTN(setup["nb_views"], views_config=setup["views_config"],
             canonical_elevation=setup["canonical_elevation"], canonical_distance=setup["canonical_distance"],
             shape_features_size=setup["features_size"], transform_distance=setup["transform_distance"], input_view_noise=setup["input_view_noise"], shape_extractor=setup["shape_extractor"], screatch_feature_extractor=setup["screatch_feature_extractor"]).cuda()
+
 mvrenderer = MVRenderer(nb_views=setup["nb_views"], image_size=setup["image_size"], pc_rendering=setup["pc_rendering"], object_color=setup["object_color"], background_color=setup["background_color"],
                         faces_per_pixel=setup["faces_per_pixel"], points_radius=setup["points_radius"],  points_per_pixel=setup["points_per_pixel"], light_direction=setup["light_direction"], cull_backfaces=setup["cull_backfaces"])
-print(setup)
-criterion = nn.CrossEntropyLoss()
 
-optimizer = torch.optim.AdamW(
-    mvnetwork.parameters(), lr=lr, weight_decay=setup["weight_decay"])
+lr = setup["learning_rate"]
+n_epochs = setup["epochs"]
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.AdamW( mvnetwork.parameters(), lr=lr, weight_decay=setup["weight_decay"])
 if setup["is_learning_views"]:
-    mvtn_optimizer = torch.optim.AdamW(mvtn.parameters(
-    ), lr=setup["mvtn_learning_rate"], weight_decay=setup["mvtn_weight_decay"])
+    mvtn_optimizer = torch.optim.AdamW(mvtn.parameters(), lr=setup["mvtn_learning_rate"], weight_decay=setup["mvtn_weight_decay"])
 else:
     mvtn_optimizer = None
-
 
 models_bag = {"mvnetwork": mvnetwork, "optimizer": optimizer,
               "mvtn": mvtn, "mvtn_optimizer": mvtn_optimizer, "mvrenderer": mvrenderer}
 
+############
 
 def train(data_loader, models_bag, setup):
+    print("Training the multi-view network")
     train_size = len(data_loader)
     total = 0.0
     correct = 0.0
@@ -227,6 +233,7 @@ def train(data_loader, models_bag, setup):
 
 
 def train_rotationNet(data_loader, models_bag, setup):
+    print("Training the rotation network")
     train_size = len(data_loader)
 
     total_loss = 0.0
@@ -326,6 +333,7 @@ def train_rotationNet(data_loader, models_bag, setup):
 
 
 def evaluate_rotationNet(data_loader, models_bag, setup):
+    print("Evaluating the rotation network")
     train_size = len(data_loader)
 
     total_loss = 0.0
@@ -370,6 +378,7 @@ def evaluate_rotationNet(data_loader, models_bag, setup):
 
 
 def evluate(data_loader, models_bag,  setup, is_test=False, retrieval=False):
+    print("Evaluating the multi-view network")
     if is_test:
         load_checkpoint(setup, models_bag, setup["weights_file"])
 
@@ -452,6 +461,7 @@ def evluate(data_loader, models_bag,  setup, is_test=False, retrieval=False):
 
 
 def compute_features(data_loader, models_bag, setup):
+    print("Computing features for training set")
 
     print("compute training metrics and store training features")
 
@@ -500,7 +510,7 @@ def compute_features(data_loader, models_bag, setup):
     return features, targets
 
 def evluate_rotation_robustness(data_loader, models_bag,  setup, max_degs=180.0,):
-
+    print("Evaluating the rotation robustness of the multi-view network")
     total = 0.0
     correct = 0.0
 
@@ -551,14 +561,14 @@ def evluate_rotation_robustness(data_loader, models_bag,  setup, max_degs=180.0,
 
 
 def view_gcn_exp(setup, models_bag, train_loader, val_loader, dset_val):
+    print("Running the ViewGCN experiment")
     seed_torch()
 
     models_bag["mvnetwork"].train()
     models_bag["mvtn"].train()
     models_bag["mvrenderer"].train()
 
-    trainer = ModelNetTrainer_mvt(models_bag, train_loader, val_loader, dset_val, nn.CrossEntropyLoss(
-    ), 'svcnn', setup["checkpoint_dir1"], num_views=1, setup=setup, classes=classes)
+    trainer = ModelNetTrainer_mvt(models_bag, train_loader, val_loader, dset_val, nn.CrossEntropyLoss(), 'svcnn', setup["checkpoint_dir1"], num_views=1, setup=setup, classes=classes)
 
     if setup["resume_first"]:
         trainer.model.load(trainer.weights_dir,)
@@ -575,7 +585,7 @@ def view_gcn_exp(setup, models_bag, train_loader, val_loader, dset_val):
                                               weight_decay=setup["weight_decay"], momentum=0.9)
 
     trainer = ModelNetTrainer_mvt(models_bag, train_loader, val_loader, dset_val,
-                                  nn.CrossEntropyLoss(), 'view-gcn', setup["checkpoint_dir2"], num_views=setup["nb_views"], setup=setup, classes=classes)
+                        nn.CrossEntropyLoss(), 'view-gcn', setup["checkpoint_dir2"], num_views=setup["nb_views"], setup=setup, classes=classes)
 
     if setup["resume"] or "test" in setup["run_mode"]:
         trainer.model.load(trainer.weights_dir,)
@@ -858,7 +868,6 @@ if setup["mvnetwork"] == "mvcnn":
         setup_dict = ListDict(list(setup.keys()))
         save_results(setup["results_file"], setup_dict.append(setup))
 
-
 elif setup["mvnetwork"] == "rotnet":
     if setup["batch_size"] % setup["nb_views"] != 0:
         raise ValueError(
@@ -927,6 +936,7 @@ elif setup["mvnetwork"] == "rotnet":
         writer.add_hparams(setup, {"hparams/best_acc": setup["best_acc"]})
 
 elif setup["mvnetwork"] == "viewgcn":
+    print("mvnetwork is viewgcn, running the ViewGCN experiment")
     if setup["resume_mvtn"]:
         models_bag["mvtn"].load_mvtn(setup["weights_file2"])
         setup["mvtn_learning_rate"] = 0.0

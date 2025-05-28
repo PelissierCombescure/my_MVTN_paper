@@ -66,6 +66,9 @@ class MVRenderer(nn.Module):
         c_batch_size = len(meshes)
         verts = [msh.verts_list()[0].cuda() for msh in meshes]
         faces = [msh.faces_list()[0].cuda() for msh in meshes]
+        #print("Rendering {} meshes".format(c_batch_size))
+        # for face in faces:
+        #     print(face.shape) 
 
         new_meshes = Meshes(
             verts=verts,
@@ -127,7 +130,7 @@ class MVRenderer(nn.Module):
             radius=self.points_radius,
             points_per_pixel=self.points_per_pixel,
             bin_size=15,
-            max_faces_per_bin=220000 # Increase this value           
+            max_faces_per_bin=2200 # Increase this value           
         )
 
         renderer = PointsRenderer(

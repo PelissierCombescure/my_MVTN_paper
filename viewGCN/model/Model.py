@@ -15,7 +15,7 @@ class Model(nn.Module):
             os.makedirs(complete_path)
         torch.save(self.state_dict(),
                    os.path.join(complete_path,
-                                "model-{}.pth".format(str(epoch).zfill(5))))
+                                "modelll-{}.pth".format(str(epoch).zfill(5))))
 
     def save_results(self, path, data):
         raise NotImplementedError("Model subclass must implement this method.")

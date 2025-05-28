@@ -5,12 +5,15 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from tqdm import tqdm
 import numpy as np
+from datetime import datetime
 from pytorch3d.renderer.cameras import camera_position_from_spherical_angles
 
 sys.path.append("..")
 from ops import *
 from torch.utils.tensorboard import SummaryWriter
 import math
+from tqdm import tqdm
+import json
 #from torchvision import transforms
 
 # rendering components
@@ -19,7 +22,7 @@ PLOT_SAMPLE_NBS = [240, 4, 150, 47, 110]
 
 
 class ModelNetTrainer_mvt(object):
-    def __init__(self, models_bag, train_loader, val_loader,val_set, loss_fn,
+    def __init__(self, models_bag, train_loader, val_loader, val_set, loss_fn,
                  model_name, weights_dir, num_views=12,setup=None,classes=[]):
         self.models_bag = models_bag
         self.model = self.models_bag["mvnetwork"]
@@ -38,6 +41,21 @@ class ModelNetTrainer_mvt(object):
         if self.setup["log_metrics"]:
             self.writer = SummaryWriter(setup["logs_dir"])
             # self.writer = SummaryWriter(self.weights_dir)
+          
+            
+        # Dictionary to store training parameters and results
+        self.training_info = {
+            'nb_views': num_views,
+            'train_losses': [],
+            'train_accuracies': [],
+            'test_losses': [],
+            'test_overall_accuracies': [],
+            'test_mean_class_accuracies': [],
+            'best_epoch': 0,
+            'best_overall_accuracy': 0,
+            'best_mean_class_accuracy': 0,
+}    
+        
     def Normalize(self,x,ignore_normalize=False):
         if ignore_normalize:
             return x
@@ -48,18 +66,12 @@ class ModelNetTrainer_mvt(object):
                 0).unsqueeze(2).unsqueeze(3).repeat(x.shape[0], 1, x.shape[2], x.shape[3])
             return (x - mean.cuda()) / std.cuda()
 
-    # mean : [0.92639977 0.92944889 0.92199925] std : [0.12933245 0.12745961 0.13158801]
-    # def Normalize_properly(self, x):
-    #     mean = torch.Tensor([0.456, 0.456, 0.456]).unsqueeze(
-    #         0).unsqueeze(2).unsqueeze(3).repeat(x.shape[0], 1, x.shape[2], x.shape[3])
-    #     std = torch.Tensor([0.225, 0.225, 0.225]).unsqueeze(
-    #         0).unsqueeze(2).unsqueeze(3).repeat(x.shape[0], 1, x.shape[2], x.shape[3])
-    #     return (x - mean.cuda()) / std.cuda()
     def train(self, n_epochs):
         # best_acc = 0
         i_acc = 0
         self.model.train()
         for epoch in range(n_epochs):
+            print(f"\n ➰​ Epoch {epoch + 1}/{n_epochs}")
             self.setup["c_epoch"] = epoch
             if self.model_name == 'view_gcn':
                 if epoch == 1:
@@ -74,32 +86,27 @@ class ModelNetTrainer_mvt(object):
                         param_group['lr'] = param_group['lr'] * 0.5
             # permute data for mvcnn
             rand_idx = np.random.permutation(int(len(self.train_loader.dataset) ))
-            # idx = torch.randperm(t.nelement())
-            # t = t.view(-1)[idx].view(t.size())
-            # # filepaths_new = []
-            # for i in range(len(rand_idx)):
-            #     filepaths_new.extend(self.train_loader.dataset.filepaths[
-            #                          rand_idx[i] * self.num_views:(rand_idx[i] + 1) * self.num_views])
-            # self.train_loader.dataset.filepaths = filepaths_new
-            # plot learning rate
+
             lr = self.optimizer.state_dict()['param_groups'][0]['lr']
             if self.setup["log_metrics"]:
                 self.writer.add_scalar('params/lr', lr, epoch)
             # train one epoch
             out_data = None
             in_data = None
+            # nb batch 
             train_size = len(self.train_loader)
+            
+            train_pbar = tqdm(total=train_size, desc=f"Training")
+            running_loss_train = 0
+            correct_train = 0
+            nb_mesh = 0
             for i, (targets, meshes, points) in enumerate(self.train_loader):
                 c_batch_size = targets.shape[0]
-                # if i>10:
-                #     continue 
-                # print(i)
+
                 targets = targets.cuda().long()
                 targets = Variable(targets)
-                azim, elev, dist = self.models_bag["mvtn"](
-                    points, c_batch_size=c_batch_size)
-                rendered_images, _ = self.models_bag["mvrenderer"](
-                    meshes, points,  azim=azim, elev=elev, dist=dist)                
+                azim, elev, dist = self.models_bag["mvtn"](points, c_batch_size=c_batch_size)
+                rendered_images, _ = self.models_bag["mvrenderer"](meshes, points,  azim=azim, elev=elev,dist=dist)                
                 N, V, C, H, W = rendered_images.size()
                 rendered_images = regualarize_rendered_views(rendered_images, self.setup["view_reg"], self.setup["augment_training"], self.setup["crop_ratio"])
 
@@ -107,16 +114,11 @@ class ModelNetTrainer_mvt(object):
                 rendered_images = self.Normalize(rendered_images.contiguous().view(-1, C, H, W), ignore_normalize=self.setup["ignore_normalize"])
                 if self.model_name == 'svcnn':
                     targets = targets.repeat_interleave(V)
-            # for i, data in enumerate(self.train_loader):
+
                 if self.model_name == 'view-gcn' and epoch == 0:
                     for param_group in self.optimizer.param_groups:
                         param_group['lr'] = lr * ((i + 1) / (len(rand_idx) // 20))
-                # if self.model_name == 'view-gcn':
-                #     N, V, C, H, W = data[1].size()
-                #     in_data = Variable(data[1]).view(-1, C, H, W).cuda()
-                # else:
-                #     in_data = Variable(data[1].cuda())
-                # target = Variable(data[0]).cuda().long()
+
                 if self.num_views == 20:
                     targets_ = targets.unsqueeze(1).repeat(1, 4*(10+5)).view(-1)
                 elif self.num_views == 12:
@@ -125,8 +127,6 @@ class ModelNetTrainer_mvt(object):
                 self.optimizer.zero_grad()
                 if self.setup["is_learning_views"]:
                     self.models_bag["mvtn_optimizer"].zero_grad()
-                # if self.setup["is_learning_points"]:
-                    # self.models_bag["fe_optimizer"].zero_grad()
                 if self.model_name == 'view-gcn':
                     self.model.vertices = unbatch_tensor(
                         camera_position_from_spherical_angles(distance=batch_tensor(
@@ -145,8 +145,8 @@ class ModelNetTrainer_mvt(object):
                 results = pred == targets
                 correct_points = torch.sum(results.long())
 
-                if (i + 1) % self.setup["print_freq"] == 0:
-                    print("\tIter [%d/%d] Loss: %.4f" %(i + 1, train_size, loss))
+                # if (i + 1) % self.setup["print_freq"] == 0:
+                #     print("\tIter [%d/%d] Loss: %.4f" %(i + 1, train_size, loss))
                 acc = correct_points.float() / results.size()[0]
                 if self.setup["log_metrics"]:
                     self.writer.add_scalar('train/train_overall_acc', acc, i_acc + i + 1)
@@ -161,55 +161,47 @@ class ModelNetTrainer_mvt(object):
                     if self.setup["log_metrics"]:
                         step = get_current_step(self.models_bag["mvtn_optimizer"])
                         self.writer.add_scalar('Zoom/loss', loss.item(), step)
-                        self.writer.add_scalar(
-                            'Zoom/MVT_vals', list(self.models_bag["mvtn"].parameters())[0].data[0, 0].item(), step)
-                        self.writer.add_scalar('Zoom/MVT_grads', np.sum(np.array([np.sum(x.grad.cpu(
-                        ).numpy() ** 2) for x in self.models_bag["mvtn"].parameters()])), step)
-
-                # if self.setup["is_learning_points"]:
-                #     self.models_bag["fe_optimizer"].step()
-                #     if self.setup["clip_grads"]:
-                #         clip_grads_(self.models_bag["feature_extractor"].parameters(
-                #         ), self.setup["fe_clip_grads_value"])
-                #     if self.setup["log_metrics"]:
-                #         step = get_current_step(self.models_bag["fe_optimizer"])
-                #         self.writer.add_scalar('Zoom/PNet_vals', list(filter(lambda p: p.grad is not None, list(
-                #             self.models_bag["feature_extractor"].parameters())))[0].data[0, 0].item(), step)
-                #         self.writer.add_scalar('Zoom/PNet_grads', np.sum(np.array([np.sum(x.grad.cpu(
-                #         ).numpy() ** 2) for x in list(filter(lambda p: p.grad is not None, list(self.models_bag["feature_extractor"].parameters())))])), step)
-
-                # log_str = 'epoch %d, step %d: train_loss %.3f; train_acc %.3f' % (epoch + 1, i + 1, loss, acc)
-                # if (i + 1) % 1 == 0:
-                #     print(log_str)
+                        self.writer.add_scalar('Zoom/MVT_vals', list(self.models_bag["mvtn"].parameters())[0].data[0, 0].item(), step)
+                        self.writer.add_scalar('Zoom/MVT_grads', np.sum(np.array([np.sum(x.grad.cpu().numpy() ** 2) for x in self.models_bag["mvtn"].parameters()])), step)
+                        
+                        
+                running_loss_train += loss.item()
+                correct_train += correct_points.float().item()
+                nb_mesh += results.size()[0]
+                train_pbar.set_postfix({'loss': f'{running_loss_train/(i+1):.5f}', 'acc': f'{(100*correct_train)/nb_mesh:.2f}%'})
+                train_pbar.update(1)
+                
             i_acc += i
-            # evaluation
+            self.training_info['train_losses'].append(running_loss_train / train_size)
+            self.training_info['train_accuracies'].append(correct_train / nb_mesh)
+            
+            #########################################
+            # evaluation - Validation
             with torch.no_grad():
-                loss, val_overall_acc, val_mean_class_acc, views_record = self.update_validation_accuracy(
-                    epoch)
+                loss, val_overall_acc, val_mean_class_acc, views_record = self.update_validation_accuracy(epoch)
             if self.setup["log_metrics"]:
                 self.writer.add_scalar('val/val_mean_class_acc', val_mean_class_acc, epoch + 1)
                 self.writer.add_scalar('val/val_overall_acc', val_overall_acc, epoch + 1)
                 self.writer.add_scalar('val/val_loss', loss, epoch + 1)
-
-
+                
+            # my save
+            self.training_info['test_losses'].append(loss)
+            self.training_info['test_overall_accuracies'].append(val_overall_acc)
+            self.training_info['test_mean_class_accuracies'].append(val_mean_class_acc)
 
             saveables = {'epoch': epoch + 1,
-                    #  'state_dict': self.model.state_dict(),
                      "mvtn": self.models_bag["mvtn"].state_dict(),
-                    #  "feature_extractor": self.models_bag["feature_extractor"].state_dict(),
                      'acc': val_overall_acc,
                      'best_acc': self.setup["best_acc"],
                      'optimizer': self.models_bag["optimizer"].state_dict(),
-                     'mvtn_optimizer': None if not self.setup["is_learning_views"] else self.models_bag["mvtn_optimizer"].state_dict(),
-                    #  'fe_optimizer': None if not self.setup["is_learning_points"] else self.models_bag["fe_optimizer"].state_dict(),
-                     }
+                     'mvtn_optimizer': None if not self.setup["is_learning_views"] else self.models_bag["mvtn_optimizer"].state_dict()}
             if self.setup["save_all"]:
                 print("saving results ..")
                 save_checkpoint(saveables, self.setup, views_record, os.path.join(self.weights_dir, self.setup["exp_id"]+"_checkpoint.pt"))
                 self.model.save(self.weights_dir, 0)
 
-        # Save mvnetwork
-                   # save best model
+            # Save mvnetwork
+            # save best model
             if val_overall_acc > self.setup["best_acc"]:
                 self.setup["best_acc"] = val_overall_acc
                 self.setup["best_cls_avg_acc"] = val_mean_class_acc
@@ -218,18 +210,37 @@ class ModelNetTrainer_mvt(object):
                 self.model.save(self.weights_dir, 0)
                 save_checkpoint(saveables, self.setup, views_record, os.path.join(
                     self.weights_dir, self.setup["exp_id"]+"_checkpoint.pt"))
+                
+                self.training_info['best_epoch'] = epoch + 1
+                self.training_info['best_overall_accuracy'] = val_overall_acc
+                self.training_info['best_mean_class_accuracy'] = val_mean_class_acc
+                
             print('best_acc', self.setup["best_acc"])
-            # export scalar data to JSON for external processing
-            # self.writer.export_scalars_to_json(self.weights_dir + "/all_scalars.json")
 
-            # Decaying Learning Rate
-            # if (epoch + 1) % self.setup["lr_decay_freq"] == 0:
-            #     lr *= self.setup["lr_decay"]
-            #     self.models_bag["optimizer"] = torch.optim.Adam(
-            #         self.models_bag["mvnetwork"].parameters(), lr=lr)
-            #     print('Learning rate:', lr)
             if (epoch + 1) % self.setup["plot_freq"] == 0:
                 self.visualize_views(epoch, PLOT_SAMPLE_NBS)
+                
+                
+            with open(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'],'training_info.json'), 'w') as f:
+                json.dump(self.training_info, f, indent=4)   
+                
+            # Plot losses
+            plt.subplot(1, 2, 1)
+            plt.plot(range(1, epoch + 2), self.training_info['train_losses'], color='#2E86C1', linestyle='-', label='Training Loss')
+            plt.plot(range(1, epoch + 2), self.training_info['test_losses'], color='#E74C3C', linestyle='-', label='Testing Loss')
+            plt.xlabel('Epoch'); plt.ylabel('Loss'); plt.title('Training and Testing Losses'); plt.legend(); plt.grid(True)
+            
+            # Plot accuracies
+            plt.subplot(1, 2, 2)
+            plt.plot(range(1, epoch + 2), self.training_info['train_accuracies'], color='#2E86C1', linestyle='-', label='Training Accuracy')
+            plt.plot(range(1, epoch + 2), self.training_info['test_overall_accuracies'], color='#E74C3C', linestyle='-', label='Testing Accuracy')
+            plt.xlabel('Epoch'); plt.ylabel('Accuracy (%)'); plt.title('Training and Testing Accuracies'); plt.legend(); plt.grid(True)
+            
+            # Adjust layout and save
+            plt.tight_layout()
+            plt.savefig(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'],'training_curves.png'))
+            plt.close()
+                    
         if self.setup["log_metrics"]:
             self.writer.add_hparams(self.setup, {"hparams/best_acc": self.setup["best_acc"],
                                                  "hparams/best_cls_avg_acc": self.setup["best_cls_avg_acc"],
@@ -288,8 +299,7 @@ class ModelNetTrainer_mvt(object):
 
 
 
-        views_record = ListDict(
-            ["azim", "elev", "dist", "label", "view_nb", "exp_id"])
+        views_record = ListDict(["azim", "elev", "dist", "label", "view_nb", "exp_id"])
         # for _, data in enumerate(self.val_loader, 0):
         for i, (targets, meshes, points) in enumerate(tqdm(self.val_loader)):
         # means = [] ; stds = []
@@ -319,15 +329,6 @@ class ModelNetTrainer_mvt(object):
                     self.model.vertices = unbatch_tensor(
                         camera_position_from_spherical_angles(distance=batch_tensor(
                             dist.T, dim=1, squeeze=True), elevation=batch_tensor(elev.T, dim=1, squeeze=True), azimuth=batch_tensor(azim.T, dim=1, squeeze=True)), batch_size=self.setup["nb_views"], dim=1, unsqueeze=True).transpose(0, 1).to(targets.device)
-#########################################
-                    # MAX_ITER = 10000
-                    # network = "ViewGCN"
-                    # inp = torch.rand((N, self.setup["nb_views"], 3, self.setup["image_size"], self.setup["image_size"])).cuda()
-                    # avg_time = profile_op(MAX_ITER, self.model, inp)
-                    # macs, params = get_model_complexity_info(self.model, (self.setup["nb_views"]*N, 3, self.setup["image_size"], self.setup["image_size"]), as_strings=True, print_per_layer_stat=False, verbose=False)
-                    # print(network, "\t", macs, "\t", params,"\t", "{}".format(avg_time*1e3))
-#######################################
-
                     out_data,F1,F2=self.model(rendered_images)
                 else:
                     out_data = self.model(rendered_images)

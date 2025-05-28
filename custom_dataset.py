@@ -49,7 +49,7 @@ class ModelNet40(Dataset):
 
         return classes, class_to_idx
 
-    def __init__(self, data_dir, split, nb_points=2048, simplified_mesh=False, cleaned_mesh=False, dset_norm=2, return_points_saved=False, is_rotated=False):
+    def __init__(self, data_dir, split, nb_points=2048, simplified_mesh=False, cleaned_mesh=False, dset_norm=2, return_points_saved=False, is_rotated=False, sample_points=None):
 
         self.y = []
         self.data_list = []
@@ -68,13 +68,15 @@ class ModelNet40(Dataset):
 
         self.is_rotated = is_rotated
 
-        for label in os.listdir(self.data_dir):
-            for item in os.listdir(self.data_dir + '/' + label + '/' + self.split):
-
+        for label in os.listdir(self.data_dir): # label = category
+            for item in os.listdir(self.data_dir + '/' + label + '/' + self.split): # split = Train ou Test
                 if item.endswith(".off"):
                     self.y.append(self.class_to_idx[label])
-                    self.data_list.append(
-                        self.data_dir + '/' + label + '/' + self.split + '/' + item)
+                    self.data_list.append(self.data_dir + '/' + label + '/' + self.split + '/' + item)
+                    
+        if sample_points is not None:
+            self.y = self.y[:sample_points]
+            self.data_list = self.data_list[:sample_points]
 
         self.simplified_data_list = [file_name.replace(
             ".off", "_SMPLER.obj") for file_name in self.data_list if file_name[-4::] == ".off"]
@@ -91,11 +93,16 @@ class ModelNet40(Dataset):
 
         self.correction_factors = [1]*len(self.data_list)
         if self.cleaned_mesh:
-            fault_mesh_list = load_text(os.path.join(
-                self.data_dir, "..", "{}_faults.txt".format(self.split)))
+            # fault_mesh_list = load_text(os.path.join(
+            #     self.data_dir, "..", "{}_faults.txt".format(self.split)))
+            # Mon chemin car les Modelnet40 est dans un autre dossier
+            fault_mesh_list = load_text(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/data/{}_faults.txt".format(self.split)))
             fault_mesh_list = [int(x) for x in fault_mesh_list]
             for x in fault_mesh_list:
-                self.correction_factors[x] = -1
+                if sample_points is not None:
+                    if x < sample_points:
+                        self.correction_factors[x] = -1                    
+                else : self.correction_factors[x] = -1
 
     def __getitem__(self, index):
 
