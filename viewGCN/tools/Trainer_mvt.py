@@ -23,7 +23,7 @@ PLOT_SAMPLE_NBS = [240, 4, 150, 47, 110]
 
 class ModelNetTrainer_mvt(object):
     def __init__(self, models_bag, train_loader, val_loader, val_set, loss_fn,
-                 model_name, weights_dir, num_views=12,setup=None,classes=[]):
+                 model_name, weights_dir, num_views=12, setup=None,classes=[]):
         self.models_bag = models_bag
         self.model = self.models_bag["mvnetwork"]
         self.optimizer = self.models_bag["optimizer"]
@@ -45,7 +45,15 @@ class ModelNetTrainer_mvt(object):
             
         # Dictionary to store training parameters and results
         self.training_info = {
+            'sample_train' : self.setup["sample_train"],
+            'sample_val' : self.setup["sample_val"],
+            'data_dir' : self.setup["data_dir"],
+            'mvnetwork': self. setup["mvnetwork"],
+            'views_config': self.setup["views_config"],
             'nb_views': num_views,
+            'bs': self.setup["batch_size"],
+            'nb_epochs': setup["epochs"],
+            'results_folder': self.setup['current_time'],
             'train_losses': [],
             'train_accuracies': [],
             'test_losses': [],
@@ -54,6 +62,7 @@ class ModelNetTrainer_mvt(object):
             'best_epoch': 0,
             'best_overall_accuracy': 0,
             'best_mean_class_accuracy': 0,
+            
 }    
         
     def Normalize(self,x,ignore_normalize=False):
@@ -215,7 +224,7 @@ class ModelNetTrainer_mvt(object):
                 self.training_info['best_overall_accuracy'] = val_overall_acc
                 self.training_info['best_mean_class_accuracy'] = val_mean_class_acc
                 
-            print('best_acc', self.setup["best_acc"])
+                print('best_acc', self.setup["best_acc"]*100)
 
             if (epoch + 1) % self.setup["plot_freq"] == 0:
                 self.visualize_views(epoch, PLOT_SAMPLE_NBS)
@@ -361,7 +370,8 @@ class ModelNetTrainer_mvt(object):
                 views_record.extend(c_views)
 
 
-        print('Total # of test models: ', all_points)
+        #print('Total # of test models: ', all_points)
+        print('Total # of test models: ', all_points/ self.setup["nb_views"])
         class_acc = (samples_class - wrong_class) / samples_class
         val_mean_class_acc = np.mean(class_acc)
         acc = all_correct_points.float() / all_points

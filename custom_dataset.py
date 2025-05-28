@@ -69,14 +69,18 @@ class ModelNet40(Dataset):
         self.is_rotated = is_rotated
 
         for label in os.listdir(self.data_dir): # label = category
-            for item in os.listdir(self.data_dir + '/' + label + '/' + self.split): # split = Train ou Test
-                if item.endswith(".off"):
-                    self.y.append(self.class_to_idx[label])
-                    self.data_list.append(self.data_dir + '/' + label + '/' + self.split + '/' + item)
-                    
-        if sample_points is not None:
-            self.y = self.y[:sample_points]
-            self.data_list = self.data_list[:sample_points]
+            if sample_points is not None :
+                cpt = 0
+                for item in os.listdir(self.data_dir + '/' + label + '/' + self.split): #split=Train/ Test
+                    if item.endswith(".off") and cpt < sample_points:
+                        cpt += 1
+                        self.y.append(self.class_to_idx[label])
+                        self.data_list.append(self.data_dir + '/' + label + '/' + self.split + '/' + item)
+            else :
+                for item in os.listdir(self.data_dir + '/' + label + '/' + self.split): # split = Train ou Test
+                    if item.endswith(".off"):
+                        self.y.append(self.class_to_idx[label])
+                        self.data_list.append(self.data_dir + '/' + label + '/' + self.split + '/' + item)                
 
         self.simplified_data_list = [file_name.replace(
             ".off", "_SMPLER.obj") for file_name in self.data_list if file_name[-4::] == ".off"]

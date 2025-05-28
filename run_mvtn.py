@@ -42,6 +42,7 @@ from viewGCN.model.view_gcn import view_GCN, SVCNN
 
 PLOT_SAMPLE_NBS = [242, 7, 549, 112, 34]
 
+#  python run_mvtn.py --data_dir /home/mpelissi/Dataset/ModelNet40/ --run_mode train --mvnetwork viewgcn --nb_views 12 --views_config learned_spherical
 
 parser = argparse.ArgumentParser(description='MVTN-PyTorch')
 
@@ -89,8 +90,10 @@ print('Loading data')
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 ############ Dataset 
-sample_train = 80
-sample_test = 20
+sample_train = 60
+sample_test = 15
+setup['sample_train'] = sample_train    
+setup['sample_test'] = sample_test
 if "modelnet" in setup["data_dir"].lower():
     # Tous les modèles d'entraînement
     dset_train = ModelNet40(setup["data_dir"], "train", nb_points=setup["nb_points"], simplified_mesh=setup["simplified_mesh"], cleaned_mesh=setup["cleaned_mesh"], dset_norm=setup["dset_norm"], return_points_saved=setup["return_points_saved"],                           is_rotated=setup["rotated_train"], sample_points=sample_train)
