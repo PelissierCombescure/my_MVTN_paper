@@ -37,7 +37,7 @@ class SVCNN(Model):
             if self.cnn_name == 'resnet18':
                 #self.net = models.resnet18(pretrained=self.pretraining)
                 self.net = models.resnet18(pretrained=False) 
-                state_dict = torch.load('/home/mpelissi/MVTN/my_MVTN_paper/checkpoint/resnet18-5c106cde.pth')
+                state_dict = torch.load('checkpoint/resnet18-5c106cde.pth')
                 self.net.load_state_dict(state_dict)
                 self.net.fc = nn.Linear(512, self.nclasses)
             elif self.cnn_name == 'resnet34':

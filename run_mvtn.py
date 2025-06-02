@@ -92,8 +92,8 @@ print('Loading data')
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 ############ Dataset 
-sample_train = 5
-sample_test = 2
+sample_train = 1
+sample_test = 1
 
 setup['sample_train'] = sample_train    
 setup['sample_test'] = sample_test

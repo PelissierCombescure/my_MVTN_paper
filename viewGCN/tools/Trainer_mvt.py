@@ -240,7 +240,7 @@ class ModelNetTrainer_mvt(object):
                 self.visualize_views(epoch, PLOT_SAMPLE_NBS)
                 
                 
-            with open(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'], phase+'_training_info.json'), 'w') as f:
+            with open(os.path.join("results", self.setup['current_time'], phase+'_training_info.json'), 'w') as f:
                 json.dump(self.training_info, f, indent=4)   
                 
             # Plot losses
@@ -257,8 +257,12 @@ class ModelNetTrainer_mvt(object):
             
             # Adjust layout and save
             plt.tight_layout()
-            plt.savefig(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'], phase+'_training_curves.png'))
+            plt.savefig(os.path.join("results", self.setup['current_time'], phase+'_training_curves.png'))
             plt.close()
+            
+            # Move logs file
+            shutil.copy("logs.out", os.path.join("results", self.setup['current_time'], phase+'_logs.out'))
+            shutil.copy("logs.err", os.path.join("results", self.setup['current_time'], phase+'_logs.err'))
                     
         if self.setup["log_metrics"]:
             self.writer.add_hparams(self.setup, {"hparams/best_acc": self.setup["best_acc"],

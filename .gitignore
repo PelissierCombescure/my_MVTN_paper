@@ -1,3 +1,5 @@
 # Ignore all .pycatch folders
 #**/__pycache__/
 results/*
+logs.err
+logs.out
