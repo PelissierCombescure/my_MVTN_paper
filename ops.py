@@ -74,6 +74,7 @@ def initialize_setup_gcn(setup):
     check_folder(os.path.join(setup["results_dir"], setup["exp_set"]))
     setup["results_dir"] = os.path.join(
         setup["results_dir"], setup["exp_set"], setup["exp_id"])
+    print("Results dir: ", setup["results_dir"])        
     setup["cameras_dir"] = os.path.join(
         setup["results_dir"], setup["cameras_dir"])
     setup["renderings_dir"] = os.path.join(

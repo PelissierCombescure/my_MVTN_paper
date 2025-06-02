@@ -42,7 +42,7 @@ from viewGCN.model.view_gcn import view_GCN, SVCNN
 
 PLOT_SAMPLE_NBS = [242, 7, 549, 112, 34]
 
-#  python run_mvtn.py --data_dir /home/mpelissi/Dataset/ModelNet40/ --run_mode train --mvnetwork viewgcn --nb_views 12 --views_config learned_spherical
+#  python run_mvtn.py --data_dir /home/mpelissi/Dataset/ModelNet40/ --run_mode train --mvnetwork viewgcn --nb_views 12 --views_config learned_spherical --batch_size 3
 
 #  OCCIDATA : python run_mvtn.py --data_dir ../Dataset/ModelNet40 --run_mode train --mvnetwork viewgcn --nb_views 12 --views_config learned_spherical
 
@@ -92,8 +92,8 @@ print('Loading data')
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 ############ Dataset 
-sample_train = 1
-sample_test = 1
+sample_train = 10
+sample_test = 5
 
 setup['sample_train'] = sample_train    
 setup['sample_test'] = sample_test
