@@ -582,7 +582,7 @@ def view_gcn_exp(setup, models_bag, train_loader, val_loader, dset_val):
     if setup["viewgcn_phase"] == "all" or setup["viewgcn_phase"] == "first":
         if setup["run_mode"] == "train":
             # MVNETWORK == SVCNN, nb_vue = 1, 35 epochs
-            print("Go to train phase 1 on"+str(setup["nb_views"])+" views with "+str(setup["first_stage_epochs"])+" epochs")
+            print("Go to train phase 1 on " + str(trainer.num_views)+" views with "+str(setup["first_stage_epochs"])+" epochs")
             trainer.train(setup["first_stage_epochs"], 'phase1')
         else:
             trainer.visualize_views("test", [55, 66, 77])
@@ -602,6 +602,7 @@ def view_gcn_exp(setup, models_bag, train_loader, val_loader, dset_val):
     if setup["viewgcn_phase"] == "all" or setup["viewgcn_phase"] == "second":
         if setup["run_mode"] == "train":
             # MVNETWORK == view_GCN, nb_vue = input, 50 epochs
+            print("Go to train phase 2 on" + str(trainer.num_views)+" views with "+str(setup["epochs"])+" epochs")
             trainer.train(setup["epochs"], 'phase2')
             
         if setup["run_mode"] == "test_cls":
