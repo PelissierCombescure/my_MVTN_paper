@@ -45,14 +45,15 @@ class ModelNetTrainer_mvt(object):
             
         # Dictionary to store training parameters and results
         self.training_info = {
+            'phase': '',
+            'model_name': self.model_name,
             'sample_train' : self.setup["sample_train"],
-            'sample_val' : self.setup["sample_val"],
+            'sample_test' : self.setup["sample_test"],
             'data_dir' : self.setup["data_dir"],
-            'mvnetwork': self. setup["mvnetwork"],
             'views_config': self.setup["views_config"],
             'nb_views': num_views,
             'bs': self.setup["batch_size"],
-            'nb_epochs': setup["epochs"],
+            'nb_epochs':0,
             'results_folder': self.setup['current_time'],
             'train_losses': [],
             'train_accuracies': [],
@@ -75,12 +76,14 @@ class ModelNetTrainer_mvt(object):
                 0).unsqueeze(2).unsqueeze(3).repeat(x.shape[0], 1, x.shape[2], x.shape[3])
             return (x - mean.cuda()) / std.cuda()
 
-    def train(self, n_epochs):
+    def train(self, n_epochs, phase=''):
+        self.training_info['phase'] = phase
+        self.training_info['nb_epochs'] = n_epochs
         # best_acc = 0
         i_acc = 0
         self.model.train()
         for epoch in range(n_epochs):
-            print(f"\n ➰​ Epoch {epoch + 1}/{n_epochs}")
+            print(f"\n {phase} : ➰​ Epoch {epoch + 1}/{n_epochs}")
             self.setup["c_epoch"] = epoch
             if self.model_name == 'view_gcn':
                 if epoch == 1:
@@ -136,6 +139,7 @@ class ModelNetTrainer_mvt(object):
                 self.optimizer.zero_grad()
                 if self.setup["is_learning_views"]:
                     self.models_bag["mvtn_optimizer"].zero_grad()
+                    
                 if self.model_name == 'view-gcn':
                     self.model.vertices = unbatch_tensor(
                         camera_position_from_spherical_angles(distance=batch_tensor(
@@ -223,6 +227,12 @@ class ModelNetTrainer_mvt(object):
                 self.training_info['best_epoch'] = epoch + 1
                 self.training_info['best_overall_accuracy'] = val_overall_acc
                 self.training_info['best_mean_class_accuracy'] = val_mean_class_acc
+                torch.save(self.models_bag["mvtn"].state_dict(), 
+                           os.path.join(self.setup["best_checkpoint_dir"], f"{phase}_{epoch + 1:03}_mvtn_best.pth"))
+                torch.save(self.models_bag["mvnetwork"].state_dict(), 
+                           os.path.join(self.setup["best_checkpoint_dir"], f"{phase}_{epoch + 1:03}_mvnetwork_best.pth"))
+                torch.save(self.models_bag["mvrenderer"].state_dict(), 
+                           os.path.join(self.setup["best_checkpoint_dir"], f"{phase}_{epoch + 1:03}._mvrenderer_best.pth"))
                 
                 print('best_acc', self.setup["best_acc"]*100)
 
@@ -230,7 +240,7 @@ class ModelNetTrainer_mvt(object):
                 self.visualize_views(epoch, PLOT_SAMPLE_NBS)
                 
                 
-            with open(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'],'training_info.json'), 'w') as f:
+            with open(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'], phase+'_training_info.json'), 'w') as f:
                 json.dump(self.training_info, f, indent=4)   
                 
             # Plot losses
@@ -247,7 +257,7 @@ class ModelNetTrainer_mvt(object):
             
             # Adjust layout and save
             plt.tight_layout()
-            plt.savefig(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'],'training_curves.png'))
+            plt.savefig(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/results", self.setup['current_time'], phase+'_training_curves.png'))
             plt.close()
                     
         if self.setup["log_metrics"]:

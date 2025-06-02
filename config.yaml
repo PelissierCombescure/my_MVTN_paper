@@ -45,7 +45,7 @@ crop_ratio : 0.3 # help='the crop ratio of the images when `augment_training` ==
 ignore_normalize : false  # help='ignore any normalization performed on the image (mean,std) before passing to the network'
 resume_mvtn : false  # help='use a pretrained MVTN and freez during this training ( not the viewGCN)  '
 first_stage_bs : 400  # help="Batch size for the first stage", default=400
-first_stage_epochs : 30  # help="number of epochs for the first stage", default=30
+first_stage_epochs : 35  # help="number of epochs for the first stage", default=30
 resume_first : true # help='continue training from the `setup[weights_file] checkpoint '
 resume_second : false  # help='continue training from the `setup[weights_file] checkpoint '
 log_metrics : true  # help='logs loss and acuracy and other metrics in `logs_dir` for tensorboard '

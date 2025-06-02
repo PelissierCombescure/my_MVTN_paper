@@ -63,7 +63,7 @@ parser.add_argument('--pc_rendering', dest='pc_rendering',
                     action='store_true', help='use point cloud renderer instead of mesh renderer  ')
 parser.add_argument('--object_color', '-clr',  default="white", choices=["white", "random", "black", "red", "green", "blue", "custom"],
                     help='the selection type of views ')
-parser.add_argument('--epochs', default=100, type=int,
+parser.add_argument('--epochs', default=50, type=int,
                     help='number of total epochs to run (default: 100)')
 parser.add_argument('--batch_size', '-b', default=3, type=int,
                     help='mini-batch size (default: 20)')
@@ -90,8 +90,8 @@ print('Loading data')
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 ############ Dataset 
-sample_train = 60
-sample_test = 15
+sample_train = None
+sample_test = None
 setup['sample_train'] = sample_train    
 setup['sample_test'] = sample_test
 if "modelnet" in setup["data_dir"].lower():
@@ -148,18 +148,14 @@ if setup["mvnetwork"] == "rotnet":
     mvnetwork = RotationNet(mvnetwork, "resnet{}".format(
         setup["depth"]), (len(classes)+1) * setup["nb_views"])
 if setup["mvnetwork"] == "viewgcn":
-    mvnetwork = SVCNN(setup["exp_id"], nclasses=len(
-        classes), pretraining=setup["pretrained"], cnn_name=setup["cnn_name"])
+    mvnetwork = SVCNN(setup["exp_id"], nclasses=len(classes), pretraining=setup["pretrained"], cnn_name=setup["cnn_name"])
 
 mvnetwork.cuda()
 cudnn.benchmark = True
 
-mvtn = MVTN(setup["nb_views"], views_config=setup["views_config"],
-            canonical_elevation=setup["canonical_elevation"], canonical_distance=setup["canonical_distance"],
-            shape_features_size=setup["features_size"], transform_distance=setup["transform_distance"], input_view_noise=setup["input_view_noise"], shape_extractor=setup["shape_extractor"], screatch_feature_extractor=setup["screatch_feature_extractor"]).cuda()
+mvtn = MVTN(setup["nb_views"], views_config=setup["views_config"], canonical_elevation=setup["canonical_elevation"], canonical_distance=setup["canonical_distance"], shape_features_size=setup["features_size"], transform_distance=setup["transform_distance"], input_view_noise=setup["input_view_noise"], shape_extractor=setup["shape_extractor"], screatch_feature_extractor=setup["screatch_feature_extractor"]).cuda()
 
-mvrenderer = MVRenderer(nb_views=setup["nb_views"], image_size=setup["image_size"], pc_rendering=setup["pc_rendering"], object_color=setup["object_color"], background_color=setup["background_color"],
-                        faces_per_pixel=setup["faces_per_pixel"], points_radius=setup["points_radius"],  points_per_pixel=setup["points_per_pixel"], light_direction=setup["light_direction"], cull_backfaces=setup["cull_backfaces"])
+mvrenderer = MVRenderer(nb_views=setup["nb_views"], image_size=setup["image_size"], pc_rendering=setup["pc_rendering"], object_color=setup["object_color"], background_color=setup["background_color"], faces_per_pixel=setup["faces_per_pixel"], points_radius=setup["points_radius"],  points_per_pixel=setup["points_per_pixel"], light_direction=setup["light_direction"], cull_backfaces=setup["cull_backfaces"])
 
 lr = setup["learning_rate"]
 n_epochs = setup["epochs"]
@@ -571,32 +567,38 @@ def view_gcn_exp(setup, models_bag, train_loader, val_loader, dset_val):
     models_bag["mvtn"].train()
     models_bag["mvrenderer"].train()
 
+    ### PHASE 1 : mvnetwork = SVCNN, nb_vue = 1
+    print("Phase 1: training the SVCNN")
     trainer = ModelNetTrainer_mvt(models_bag, train_loader, val_loader, dset_val, nn.CrossEntropyLoss(), 'svcnn', setup["checkpoint_dir1"], num_views=1, setup=setup, classes=classes)
 
     if setup["resume_first"]:
+        print("Resuming training from the first phase")
         trainer.model.load(trainer.weights_dir,)
     if setup["viewgcn_phase"] == "all" or setup["viewgcn_phase"] == "first":
         if setup["run_mode"] == "train":
-            trainer.train(setup["first_stage_epochs"])
+            # MVNETWORK == SVCNN, nb_vue = 1, 35 epochs
+            print("Go to train phase 1 on"+str(setup["nb_views"])+" views with "+str(setup["first_stage_epochs"])+" epochs")
+            trainer.train(setup["first_stage_epochs"], 'phase1')
         else:
             trainer.visualize_views("test", [55, 66, 77])
             trainer.update_validation_accuracy(1)
 
-    models_bag["mvnetwork"] = view_GCN(setup["exp_id"], models_bag["mvnetwork"], nclasses=len(classes),
-                                       cnn_name=setup["cnn_name"], num_views=setup["nb_views"])
-    models_bag["optimizer"] = torch.optim.SGD(models_bag["mvnetwork"].parameters(), lr=setup["learning_rate"],
-                                              weight_decay=setup["weight_decay"], momentum=0.9)
-
-    trainer = ModelNetTrainer_mvt(models_bag, train_loader, val_loader, dset_val,
-                        nn.CrossEntropyLoss(), 'view-gcn', setup["checkpoint_dir2"], num_views=setup["nb_views"], setup=setup, classes=classes)
+    ### PHASE 2 : mvnetwork = view_GCN
+    print("Phase 2: training the ViewGCN")
+    models_bag["mvnetwork"] = view_GCN(setup["exp_id"], models_bag["mvnetwork"], nclasses=len(classes), cnn_name=setup["cnn_name"], num_views=setup["nb_views"])
+    models_bag["optimizer"] = torch.optim.SGD(models_bag["mvnetwork"].parameters(), lr=setup["learning_rate"], weight_decay=setup["weight_decay"], momentum=0.9)
+    trainer = ModelNetTrainer_mvt(models_bag, train_loader, val_loader, dset_val, nn.CrossEntropyLoss(), 'view-gcn', setup["checkpoint_dir2"], num_views=setup["nb_views"], setup=setup, classes=classes)
 
     if setup["resume"] or "test" in setup["run_mode"]:
+        print("Resuming training from the second phase")
         trainer.model.load(trainer.weights_dir,)
         if setup["is_learning_views"]:
             models_bag["mvtn"].load_mvtn(setup["weights_file2"])
     if setup["viewgcn_phase"] == "all" or setup["viewgcn_phase"] == "second":
         if setup["run_mode"] == "train":
-            trainer.train(setup["epochs"])
+            # MVNETWORK == view_GCN, nb_vue = input, 50 epochs
+            trainer.train(setup["epochs"], 'phase2')
+            
         if setup["run_mode"] == "test_cls":
             trainer.visualize_views("test", all_imgs_list)
             trainer.update_validation_accuracy(1)

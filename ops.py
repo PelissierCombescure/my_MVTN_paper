@@ -83,6 +83,8 @@ def initialize_setup_gcn(setup):
         setup["results_dir"], "checkpoint_stage1")
     setup["checkpoint_dir2"] = os.path.join(
         setup["results_dir"], "checkpoint_stage2")
+    setup["best_checkpoint_dir"] = os.path.join(
+        setup["results_dir"], "best_checkpoint")
 
     setup["cnn_name"] = "resnet{}".format(setup["depth"])
     setup["logs_dir"] = os.path.join(setup["results_dir"], setup["logs_dir"])
@@ -102,6 +104,7 @@ def initialize_setup_gcn(setup):
     check_folder(setup["verts_dir"])
     check_folder(setup["checkpoint_dir1"])
     check_folder(setup["checkpoint_dir2"])
+    check_folder(setup["best_checkpoint_dir"])
     if setup["run_mode"] != "test_cls" and setup["resume_first"]:
 
         if "modelnet" in setup["data_dir"].lower():
