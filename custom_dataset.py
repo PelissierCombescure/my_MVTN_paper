@@ -100,7 +100,9 @@ class ModelNet40(Dataset):
             # fault_mesh_list = load_text(os.path.join(
             #     self.data_dir, "..", "{}_faults.txt".format(self.split)))
             # Mon chemin car les Modelnet40 est dans un autre dossier
-            fault_mesh_list = load_text(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/data/{}_faults.txt".format(self.split)))
+            # fault_mesh_list = load_text(os.path.join("/home/mpelissi/MVTN/my_MVTN_paper/data/{}_faults.txt".format(self.split)))
+            # OCCIDATA 
+            fault_mesh_list = load_text(os.path.join("data/{}_faults.txt".format(self.split)))
             fault_mesh_list = [int(x) for x in fault_mesh_list]
             for x in fault_mesh_list:
                 if sample_points is not None:

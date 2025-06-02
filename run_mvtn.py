@@ -44,6 +44,8 @@ PLOT_SAMPLE_NBS = [242, 7, 549, 112, 34]
 
 #  python run_mvtn.py --data_dir /home/mpelissi/Dataset/ModelNet40/ --run_mode train --mvnetwork viewgcn --nb_views 12 --views_config learned_spherical
 
+#  OCCIDATA : python run_mvtn.py --data_dir ../Dataset/ModelNet40 --run_mode train --mvnetwork viewgcn --nb_views 12 --views_config learned_spherical
+
 parser = argparse.ArgumentParser(description='MVTN-PyTorch')
 
 parser.add_argument('--data_dir', required=True,  help='path to 3D dataset')
@@ -90,8 +92,9 @@ print('Loading data')
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 ############ Dataset 
-sample_train = None
-sample_test = None
+sample_train = 5
+sample_test = 2
+
 setup['sample_train'] = sample_train    
 setup['sample_test'] = sample_test
 if "modelnet" in setup["data_dir"].lower():
@@ -148,13 +151,15 @@ if setup["mvnetwork"] == "rotnet":
     mvnetwork = RotationNet(mvnetwork, "resnet{}".format(
         setup["depth"]), (len(classes)+1) * setup["nb_views"])
 if setup["mvnetwork"] == "viewgcn":
+    print("Setup SVCNN as mvnetwork")
     mvnetwork = SVCNN(setup["exp_id"], nclasses=len(classes), pretraining=setup["pretrained"], cnn_name=setup["cnn_name"])
 
 mvnetwork.cuda()
 cudnn.benchmark = True
-
+print("Setup MVTN")
 mvtn = MVTN(setup["nb_views"], views_config=setup["views_config"], canonical_elevation=setup["canonical_elevation"], canonical_distance=setup["canonical_distance"], shape_features_size=setup["features_size"], transform_distance=setup["transform_distance"], input_view_noise=setup["input_view_noise"], shape_extractor=setup["shape_extractor"], screatch_feature_extractor=setup["screatch_feature_extractor"]).cuda()
 
+print("Setup MVRenderer")
 mvrenderer = MVRenderer(nb_views=setup["nb_views"], image_size=setup["image_size"], pc_rendering=setup["pc_rendering"], object_color=setup["object_color"], background_color=setup["background_color"], faces_per_pixel=setup["faces_per_pixel"], points_radius=setup["points_radius"],  points_per_pixel=setup["points_per_pixel"], light_direction=setup["light_direction"], cull_backfaces=setup["cull_backfaces"])
 
 lr = setup["learning_rate"]
